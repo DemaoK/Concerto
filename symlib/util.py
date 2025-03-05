@@ -163,9 +163,21 @@ DEFAULT_HALO_NAMES = {
         "Halo113", "Halo222", "Halo327", "Halo453", "Halo719", "Halo788",
         "Halo169", "Halo229", "Halo349", "Halo476", "Halo659", "Halo747", "Halo975"
     ]),
+    #added for ConcertoHR
+    "ConcertoLMCHR": sorted(["Halo104-CDM", "Halo104-gSIDM"]),
+    "ConcertoMW004HR": sorted(["Halo004-CDM", "Halo004-mwSIDM", "Halo004-gSIDM"]),
+    "ConcertoMW416HR": sorted(["Halo416-CDM", "Halo416-mwSIDM"]),
+    "ConcertoGroupHR": sorted(["Halo352-CDM", "Halo352-gSIDM-70", "Halo352-gSIDM", "Halo962-CDM", "Halo962-gSIDM-70"]),
+    "ConcertoLClusterHR": sorted(["Halo000-CDM", "Halo000-gSIDM"]),
+    #added for ConcertoLR
+    "ConcertoLMCLR": sorted(["Halo104-CDM", "Halo104-gSIDM"]),
+    "ConcertoMW004LR": sorted(["Halo004-CDM", "Halo004-mwSIDM", "Halo004-gSIDM"]),
+    "ConcertoMW416LR": sorted(["Halo416-CDM", "Halo416-mwSIDM"]),
+    "ConcertoGroupLR": sorted(["Halo352-CDM", "Halo352-gSIDM-70", "Halo352-gSIDM", "Halo962-CDM", "Halo962-gSIDM-70"]),
+    "ConcertoLClusterLR": sorted(["Halo000-CDM", "Halo000-gSIDM"]),
 }
 
-SUITE_NAMES = ["SymphonyLMC", "SymphonyMilkyWay", "SymphonyMilkyWayLR", "SymphonyMilkyWayHR", "SymphonyGroup", "SymphonyLCluster", "SymphonyCluster", "SymphonyClusterCorrupted", "MWest", "EDEN_MilkyWay_8K", "EDEN_MilkyWay_16K"]
+SUITE_NAMES = ["SymphonyLMC", "SymphonyMilkyWay", "SymphonyMilkyWayLR", "SymphonyMilkyWayHR", "SymphonyGroup", "SymphonyLCluster", "SymphonyCluster", "SymphonyClusterCorrupted", "MWest", "EDEN_MilkyWay_8K", "EDEN_MilkyWay_16K","ConcertoLMCHR", "ConcertoMW004HR", "ConcertoMW416HR", "ConcertoGroupHR", "ConcertoLClusterHR", "ConcertoLMCLR", "ConcertoMW004LR", "ConcertoMW416LR", "ConcertoGroupLR", "ConcertoLClusterLR"]
 
 def n_hosts(suite_name):
     """ n_halos returns the number of host halos in a given suite,

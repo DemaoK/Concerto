@@ -288,7 +288,13 @@ _banerjee_cosmology = { 'flat': True, 'H0': 70.0, 'Om0': 0.3,
                         'Ob0': 0.049, 'sigma8': 0.85, 'ns': 0.95 }
 _carmen_cosmology = { 'flat': True, 'H0': 70.0, 'Om0': 0.25,
                       'Ob0': 0.049, 'sigma8': 0.8, 'ns': 1 }
-
+#added for Concerto
+_hinshaw_ns_cosmology = { 'flat': True, 'H0': 70.0, 'Om0': 0.286,
+                      'Ob0': 0.049, 'sigma8': 0.82, 'ns': 1 }
+_hinshaw_cosmology = { 'flat': True, 'H0': 70.0, 'Om0': 0.286,
+                          'Ob0': 0.049, 'sigma8': 0.82, 'ns': 0.96 }
+_LCluster_cosmology = { 'flat': True, 'H0': 70.0, 'Om0': 0.3,
+                        'Ob0': 0.049, 'sigma8': 0.85, 'ns': 0.96 }
 """ parameter_table contains simulation-defining parameters. This includes a 
 table of cosmological parameters ("flat", "H0", "Om0", "Ob0", "sigma8", and
 "ns"), the particle mass in Msun/h, "mp", the Plummer-equivalent force
@@ -309,7 +315,19 @@ parameter_table = {
     "SymphonyCluster": _carmen_cosmology.copy(),
     "SymphonyClusterCorrupted": _carmen_cosmology.copy(),
     "MWest": _chinchilla_cosmology.copy(),
-}
+    #added for Concerto HR
+    "ConcertoLMCHR": _hinshaw_cosmology.copy(),
+    "ConcertoMW004HR":_hinshaw_cosmology.copy(),
+    "ConcertoMW416HR": _hinshaw_ns_cosmology.copy(),
+    "ConcertoGroupHR": _hinshaw_cosmology.copy(),
+    "ConcertoLClusterHR":_LCluster_cosmology.copy(),
+    #added for Concerto LR
+    "ConcertoLMCLR": _hinshaw_cosmology.copy(),
+    "ConcertoMW004LR":_hinshaw_cosmology.copy(),
+    "ConcertoMW416LR": _hinshaw_ns_cosmology.copy(),
+    "ConcertoGroupLR": _hinshaw_cosmology.copy(),
+    "ConcertoLClusterLR":_LCluster_cosmology.copy(),
+    }
 
 parameter_table["SymphonyLMC"]["eps"] = 0.080
 parameter_table["SymphonyMilkyWay"]["eps"] = 0.170
@@ -324,6 +342,19 @@ parameter_table["SymphonyLCluster"]["eps"] = 1.200
 parameter_table["SymphonyCluster"]["eps"] = 3.250
 parameter_table["SymphonyClusterCorrupted"]["eps"] = 3.250
 parameter_table["MWest"]["eps"] = 0.170
+#added for Concerto HR
+parameter_table["ConcertoLMCHR"]["eps"] = 0.040
+parameter_table["ConcertoMW004HR"]["eps"] = 0.080
+parameter_table["ConcertoMW416HR"]["eps"] = 0.080
+parameter_table["ConcertoGroupHR"]["eps"] = 0.170
+parameter_table["ConcertoLClusterHR"]["eps"] = 0.600
+#added for Concerto LR
+parameter_table["ConcertoLMCLR"]["eps"] = 0.080
+parameter_table["ConcertoMW004LR"]["eps"] = 0.170
+parameter_table["ConcertoMW416LR"]["eps"] = 0.170
+parameter_table["ConcertoGroupLR"]["eps"] = 0.360
+parameter_table["ConcertoLClusterLR"]["eps"] = 1.200
+
 
 parameter_table["SymphonyLMC"]["mp"] = 3.52476e4
 parameter_table["SymphonyMilkyWay"]["mp"] = 2.81981e5
@@ -338,6 +369,18 @@ parameter_table["SymphonyLCluster"]["mp"] = 1.51441632e8
 parameter_table["SymphonyCluster"]["mp"] = 1.26201360e8
 parameter_table["SymphonyClusterCorrupted"]["mp"] = 1.26201360e8
 parameter_table["MWest"]["mp"] = 2.81981e5
+#added for Concerto HR
+parameter_table["ConcertoLMCHR"]["mp"] = 4.406e3
+parameter_table["ConcertoMW004HR"]["mp"] = 3.52476e4
+parameter_table["ConcertoMW416HR"]["mp"] = 3.52476e4
+parameter_table["ConcertoGroupHR"]["mp"] = 2.81981e5
+parameter_table["ConcertoLClusterHR"]["mp"] = 1.893e7
+#added for Concerto LR
+parameter_table["ConcertoLMCLR"]["mp"] = 3.52476e4
+parameter_table["ConcertoMW004LR"]["mp"] = 2.81981e5
+parameter_table["ConcertoMW416LR"]["mp"] = 2.81981e5
+parameter_table["ConcertoGroupLR"]["mp"] = 2.25585e6
+parameter_table["ConcertoLClusterLR"]["mp"] = 1.51441632e8
 
 for sim in parameter_table:
     param = parameter_table[sim]
@@ -409,6 +452,23 @@ def scale_factors(dir_name):
     elif (suite_name in ["SymphonyLCluster",  "SymphonyCluster", "SymphonyClusterCorrupted"] or
           dir_name in ["SymphonyLCluster",  "SymphonyCluster", "SymphonyClusterCorrupted"]):
         default = 10**np.linspace(np.log10(0.075), np.log10(1), 200)
+   
+
+    #added for ConcertoHR
+    elif (suite_name in ["ConcertoLMCHR", "ConcertoMW004HR", "ConcertoMW416HR", "ConcertoGroupHR"] or dir_name in ["ConcertoLMCHR", "ConcertoMW004HR", "ConcertoMW416HR", "ConcertoGroupHR"]):
+        default = 10**np.linspace(np.log10(0.05), np.log10(1), 236)
+    
+    elif (suite_name in ["ConcertoLClusterHR",] or
+          dir_name in ["ConcertoLClusterHR",]):
+        default = 10**np.linspace(np.log10(0.077), np.log10(1), 100)
+    #added for ConcertoLR
+    elif (suite_name in ["ConcertoLMCLR", "ConcertoMW004LR", "ConcertoMW416LR", "ConcertoGroupLR"] or dir_name in ["ConcertoLMCLR", "ConcertoMW004LR", "ConcertoMW416LR", "ConcertoGroupLR"]):
+        default = 10**np.linspace(np.log10(0.05), np.log10(1), 236)
+    
+    elif (suite_name in ["ConcertoLClusterLR",] or
+          dir_name in ["ConcertoLClusterLR",]):
+        default = 10**np.linspace(np.log10(0.077), np.log10(1), 100)
+        
     else:
         raise ValueError(("The halo in %s does not belong to a " + 
                           "recognized suite.") % dir_name)
@@ -744,6 +804,8 @@ def read_cores(dir_name, include_false_selections=False, suffix=None):
     given directory. The returned array is a structured array of type
     CORE_DTYPE with shape (n_halos, n_snaps).
     """
+    """
+   comment out this section as we do not care flags - DK
     if suffix == "":
         file_name = path.join(dir_name, "halos", "cores.dat")
     elif suffix is None:
@@ -752,6 +814,9 @@ def read_cores(dir_name, include_false_selections=False, suffix=None):
             file_name = path.join(dir_name, "halos", "cores_fid3.dat")
     else:
         file_name = path.join(dir_name, "halos", "cores_%s.dat" % suffix)
+     """
+    #redefine file_name
+    file_name = path.join(dir_name, "halos", "cores.dat")
 
     param = simulation_parameters(dir_name)
     mp = param["mp"]/param["h100"]
