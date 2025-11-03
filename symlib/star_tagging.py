@@ -49,23 +49,42 @@ class ProfileShapeModel(abc.ABC):
     """ AbstractProfile is an abstract base class for galaxy profile models. It
     allows you to convert a half-light radius into an enclosed stellar mass
     profile.
-    """
+    """ 
     
     @abc.abstractmethod
     def m_enc(self, m_star, r_half, r, **kwargs):
         """ m_enc returns the enclosed mass profile as a function of 3D radius,
-        r. m_star is the asymptotic stellar mass of the galaxy, r_half is the 2D
-        half-light radius of the galaxy. Returned masses will be in the same
-        units as m_star.
+        r. m_star is the asymptotic stellar mass of the galaxy, r_half is 3D
+        half-light radius of the galaxy. is_2d is True if the input radius is
+        a projected 2d radius and false otherwise. Returned masses will be in
+        the same units as m_star.
         """
         pass
-        
+
+
+    @abc.abstractmethod
+    def set_r_half_is_2d(self, r_half_is_2d):
+        """ set_rhalf_is_2d sets the variable r_half_is_2d, which determines
+        how the r_half value in the m_enc function is interpreted. This
+        variable should be set to True.
+        """
+        pass
+
+    @abc.abstractmethod
+    def r2d_r3d(self):
+        """ returns the ratio of r2d/r3d for whatever internally generated
+        parameters were used in the previous call to m_enc().
+        """
+        pass
+    
     @abc.abstractmethod
     def density(self, m_star, r_half, r, **kwargs):
-        """ density returns the local density as a function of 3D radius, r.
+        """  DEPRECATED
+
+        density returns the local density as a function of 3D radius, r.
         m_star is the asymptotic stellas mass of the galaxy, r_hald is the 2D
         half-light radius of the galaxy. Returned masses will be in the same
-        units of m_star.
+        units of m_star. Only the r input will be vecotrized.
         """
         pass
 
@@ -93,6 +112,13 @@ class RHalfModel(abc.ABC):
         """
         pass
 
+    @abc.abstractmethod
+    def r_half_is_2d(self):
+        """ r_half_is_2d returns True if the model returns 2D radii or 3D
+        radii.
+        """
+        pass
+    
     @abc.abstractmethod
     def var_names(self):
         """ var_names returns the names of the variables this model requires.
@@ -288,6 +314,7 @@ class AbstractRanking(abc.ABC):
         None unless you call a later method which works with velocities (i.e.
         core_v)
         """
+        
         # Initially, this did a shallow copy of the arrays. 
         self.x = np.array(x)
         if v is not None:
@@ -312,11 +339,11 @@ class AbstractRanking(abc.ABC):
         load_particles() first.
         """
         if self.x is None: raise ValueError("x not set")
-
-        core = self.x[np.searchsorted(self.idx, self.core_idx[:-1])]
+ 
+        core = self.x[np.searchsorted(self.idx, self.core_idx)]
         # I'm extremely confused by something that I think is a bug in
         # np.median here???
-        return np.median(core[:-1], axis=0)
+        return np.median(core, axis=0)
         
     def core_v(self):
         """ core_v returns the velocity of the halo core. You must have called
@@ -329,11 +356,18 @@ class AbstractRanking(abc.ABC):
         
     def set_mp_star(self, kwargs, profile_model, r_half, m_star):
         M = self.M
+
+        # This is some sort of crazy error caused by Rockstar problems.
+        if M is None:
+            self.mp_star[:] = m_star/len(self.mp_star)
+            return self.mp_star
+        
         n = M.shape[1]
 
         profile_kwargs = profile_model.trim_kwargs(kwargs)
         m_star_enc_target = profile_model.m_enc(
-            m_star, r_half, self.r_bins[1:]*self.rvir, **profile_kwargs)
+            m_star, r_half, self.r_bins[1:]*self.rvir,
+            **profile_kwargs)
         
         dm_star_enc_target = np.zeros(len(m_star_enc_target))
         dm_star_enc_target[1:] = m_star_enc_target[1:] - m_star_enc_target[:-1]
@@ -402,48 +436,43 @@ class AbstractRanking(abc.ABC):
         
         return mean_t_relax
 
-class RadialEnergyRanking(AbstractRanking):
-    def __init__(self, params, x, v, idx, n_max, rvir,
+class EnergyRanking(AbstractRanking):
+    def __init__(self, p, E, rvir, vmax,
                  core_particles=DEFAULT_CORE_PARTICLES,
                  quantile_edges=DEFAULT_QUANTILE_EDGES):
-        """ Takes mp (Msun; may be a scalar), x (pkpc), v (pkm/s), idx (the
-        index into the full particle array), and n_max (the number of particles
-        in the full particle arrays).
-        
-        only_tag may be set so that only a subset of particles may be tagged
-        (e.g. early-accreted particles).
+        """ Takes a set of particles read in "smooth" mode, their corresponding
+        energies, and ok, a boolean flag indicating which particles have valid
+        energy values. Regardless of what ok is set to, 
         """
 
-        if len(x) == 0:
-            self.rmax, self.vmax = 0, 0
-            self.ke_vmax, self.E_vmax2 = np.empty(0), np.empty(0)
-            self.E_idx, self.E_edges = np.empty(0), np.empty(0)
-            super(RadialEnergyRanking, self).__init__(
-                np.empty(0), np.empty(0), 0)
+        if len(p) == 0:
+            self.E_edges = np.empty(0)
+            super(EnergyRanking, self).__init__(np.empty(0), np.empty(0), 0)
             return
-            
-        
-        (self.rmax, self.vmax,
-         self.pe_vmax2, self.order) = profile_info(params, x)
-        
-        self.ke_vmax2 = 0.5*np.sum(v**2, axis=1) / self.vmax**2
-        self.E_vmax2 = self.ke_vmax2 + self.pe_vmax2
-        self.E_idx = idx
-        
-        core_q = min(core_particles / len(self.E_vmax2), 1)
-        core_E_vmax2 = np.quantile(self.E_vmax2, core_q)
-        
-        core_idx = idx[self.E_vmax2 <= core_E_vmax2]
 
-        #E_edges = np.linspace(-10, 0, 41)
+        ok = p["ok"]
+        idx = np.arange(len(ok), dtype=int)[ok]
+
+        # This can happen if there are rockstar errors which screw up the
+        # particle tagging. It's rare but happens ever few-thousand halos.
+        if len(E) <= core_particles:
+            core_idx = np.arange(len(E), dtype=int)
+            ranks = np.zeros(len(E), dtype=int)
+            super(EnergyRanking, self).__init__(ranks, core_idx, rvir)
+            return
+        
+        core_q = core_particles / len(E)
+        core_E = np.quantile(E, core_q)
+        core_idx = np.where(E <= core_E)[0]
+
         E_edges = np.linspace(-15, 0, 61)
-        quantile_edges = [np.sum(self.E_vmax2< E_edges[i])/
-                          len(self.E_vmax2) for i in range(len(E_edges))]
+        quantile_edges = [np.sum(E/vmax**2 < E_edges[i])/ len(E)
+                          for i in range(len(E_edges))]
 
         ranks, self.E_edges = rank_by_quantile(
-            quantile_edges, self.E_vmax2, idx, n_max)
+            quantile_edges, E[idx]/vmax**2, idx, len(p))
         
-        super(RadialEnergyRanking, self).__init__(ranks, core_idx, rvir)
+        super(EnergyRanking, self).__init__(ranks, core_idx, rvir)
     
 ##################################
 # Specific Model Implementations #
@@ -452,14 +481,28 @@ class RadialEnergyRanking(AbstractRanking):
 class PlummerProfile(ProfileShapeModel):
     """ PlummerProfile models a galaxy's mass distribution as a Plummer sphere.
     """
+
+    def __init__(self, r_half_is_2d=False):
+        self.r_half_is_2d = r_half_is_2d
+
+    def set_r_half_is_2d(self, r_half_is_2d):
+        self.r_half_is_2d = r_half_is_2d
+        
     def m_enc(self, m_star, r_half, r, **kwargs):
         """ m_enc returns the enclosed mass profile as a function of 3D radius,
         r. m_star is the asymptotic stellar mass of the galaxy, r_half is the 2D
         half-light radius of the galaxy. Returned masses will be in the same
         units as m_star.
         """
+
+        if not self.r_half_is_2d:
+            r_half *= self.r2d_r3d() # For plummer you want 2d
+
         a = r_half
         return m_star*r**3 /(r**2 + a**2)**1.5
+
+    def r2d_r3d(self):
+        return (2**(2/3) - 1)**0.5
     
     def density(self, m_star, r_half, r, **kwargs):
         """ density returns the local density as a function of 3D radius, r.
@@ -467,22 +510,34 @@ class PlummerProfile(ProfileShapeModel):
         half-light radius of the galaxy. Returned masses will be in the same
         units of m_star.
         """
+        if not self.r_half_is_2d:
+            r_half *= self.r2d_r3d() # For plummer you want 2d
+
         a = r_half
         return 3*m_star/(4*np.pi*a**3) * (1 + r**2/a**2)**(-5/2)
     
     def var_names(self):
         return []
     
-class HerquistProfile(ProfileShapeModel):
+class HernquistProfile(ProfileShapeModel):
     """ HernquistProfile models a galaxy's mass distribution as a Hernquist sphere.
     """
+    def __init__(self, r_half_is_2d=False):
+        self.r_half_is_2d = r_half_is_2d
+
+    def set_r_half_is_2d(self, r_half_is_2d):
+        self.r_half_is_2d = r_half_is_2d
+    
     def m_enc(self, m_star, r_half, r, **kwargs):
         """ m_enc returns the enclosed mass profile as a function of 3D radius,
         r. m_star is the asymptotic stellar mass of the galaxy, r_half is the 2D
         half-light radius of the galaxy. Returned masses will be in the same
         units as m_star.
         """
-        a = r_half
+        if not self.r_half_is_2d:
+            r_half *= self.r2d_r3d()
+        
+        a = r_half/1.8153   # This is from a = r_1/2_3d/(1+sqrt(2)) = r_1/2_2d/1.8153 since conversion. See Hernquist 1990
         return m_star*r**2 /(r+a)**2.
     
     def density(self, m_star, r_half, r, **kwargs):
@@ -491,9 +546,15 @@ class HerquistProfile(ProfileShapeModel):
         half-light radius of the galaxy. Returned masses will be in the same
         units of m_star.
         """
-        a = r_half
+        if not self.r_half_is_2d:
+            r_half *= self.r2d_r3d()
+
+        a = r_half/1.8153   # This is from a = r_1/2_3d/(1+sqrt(2)) = r_1/2_2d/1.8153 since conversion. See Hernquist 1990
         return m_star/(2*np.pi*a**3) * (a**4/(r*(r+a)**3))
 
+    def r2d_r3d(self):
+        return 1/1.33#1/(1 + np.sqrt(2))
+    
     def var_names(self):
         return []
 
@@ -511,12 +572,15 @@ class EinastoProfile(ProfileShapeModel):
     (here, Gamma is the normalized lower incomplete gamma function and rs
     is the radius where the log slope = -2.)
     """
-    def __init__(self, alpha):
+    def __init__(self, alpha, r_half_is_2d=False):
         self.alpha = alpha
         def f(x):
             return special.gammainc(3/alpha, 2*x**alpha/alpha) - 0.5
         self.r_half_rs = optimize.root_scalar(f, x0=1, x1=2).root
-    
+
+    def set_r_half_is_2d(self, r_half_is_2d):
+        self.r_half_is_2d = r_half_is_2d
+        
     def m_enc(self, m_star, r_half, r, **kwargs):
         """ m_enc returns the enclosed mass profile as a function of 3D radius,
         r. m_star is the asymptotic stellar mass of the galaxy, r_half is the 2D
@@ -524,10 +588,16 @@ class EinastoProfile(ProfileShapeModel):
         units as m_star.
         """
 
+        if self.r_half_is_2d:
+            r_half /= self.r2d_r3d() # Want 3d radius
+        
         rs = r_half/self.r_half_rs
         x = r/rs
         return special.gammainc(
             3/self.alpha, 2*x**self.alpha/self.alpha)*m_star
+
+    def r2d_r3d(self):
+        return (special.gammaincinv(3/self.alpha, 0.5)*self.alpha/2)**(1/self.alpha)
     
     def density(self, m_star, r_half, r, **kwargs):
         """ density returns the local density as a function of 3D radius, r.
@@ -535,11 +605,104 @@ class EinastoProfile(ProfileShapeModel):
         half-light radius of the galaxy. Returned masses will be in the same
         units of m_star.
         """
+        if self.r_half_is_2d:
+            r_half /= self.r2d_r3d() # Want 3d radius
         rs = r_half/self.r_half_rs
         rho_s = (m_star*(2/self.alpha)**(3/self.alpha) *
                  (self.alpha/(4*np.pi*rs**3)))
         return rho_s * np.exp(-2/self.alpha * ((r/rs)**self.alpha - 1))
         
+    def var_names(self):
+        return []
+
+class DeprojectedSersicProfile(ProfileShapeModel):
+    def __init__(self, n_sersic="mansfield25", r_half_is_2d=False):
+        """ n_sersic can be one of two different values:
+        - float: this will be the n_sersic value used
+        - string: the name of an sersic index relation. Curently, only 
+        "mansfield25" is supported.
+        - r_half_is_2d determines whether the r_half input to
+        """
+        self.n_sersic = n_sersic
+        self.previous_n_sersic_sample = 2.0 # just to prevent crashes
+        self.r_half_is_2d = r_half_is_2d
+
+    def set_r_half_is_2d(self, r_half_is_2d):
+        self.r_half_is_2d = r_half_is_2d
+        
+    def density(self, m_star, r_half_2d, r, **kwargs):
+        raise ValueError("Not yet implemented")
+            
+    def m_enc(self, m_star, r_half, r, **kwargs):
+        if type(self.n_sersic) == str:
+            if self.n_sersic == "mansfield25":
+                n_sersic = self._mansfield25_sample(m_star)
+            else:
+                raise ValueError(
+                    "Unrecognized sersic model, '%s'" % self.n_sersic)
+        else:
+            n_sersic = self.n_sersic
+
+        self.previous_n_sersic_sample = n_sersic
+        
+        # If r_half is 2d, convert to 3d:
+        if self.r_half_is_2d:
+            r_half_3d = r_half/self.r2d_r3d()
+        # If r_half is 3d, keep as is:
+        else:
+            r_half_3d = r_half
+            
+        # Use Lima Neto+ (1999) fit to n.
+        # According to Vitral & Mamon (2020), this runs into problems for
+        # n ~< 2 /and/ r ~< Re/10. This is fine for us. (I would have used
+        # Vitral & Mamon's fit, but it's much harder to use.)
+        pn = 1 - 0.6097/n_sersic + 0.05463/n_sersic**2
+        
+        # This bn_prime is NOT the same as bn in Lima Neto+ or Vitral & Mamon 2020. It accounts for the shift from r_eff_2d to r_1/2_3d in the Menc equation
+        bn_prime = special.gammaincinv((3-pn)*n_sersic, 0.5) 
+
+        return special.gammainc((3-pn)*n_sersic, bn_prime*(r/r_half_3d)**(1/n_sersic))*m_star
+    
+    def r2d_r3d(self):
+        # From Lima & Neto: returns ratio of r_2d/r_3d 
+        nu = 1/self.previous_n_sersic_sample
+        r3d_r2d = 1.356 - 0.0293*nu + 0.0023*nu**2
+        return 1/r3d_r2d
+    
+    
+    def _mansfield25_sample(self, mstar):
+        # Fits to the 16th, 50th, and 84th quantiles
+        x = np.log10(mstar)
+        q16 = -0.18 + 0.35*(1 + special.erf(1.65*(x - 10.95)))
+        q50 = -0.07 + 0.35*(1 + special.erf(1.44*(x - 10.56)))
+        q84 = +0.08 + 0.35*(1 + special.erf(1.10*(x - 10.15)))
+        
+        # 68% skew parameter
+        s68_signed = np.abs((q16 + q84 - 2*q50)/(q84 - q16))
+        s68 = np.abs(s68_signed)
+
+        # fit to ln(kappa)
+        z = -np.log(1 - s68)
+        a = 0.6332
+        b = 0.3734
+        c = -0.008641
+        d = 0.003886
+        log_k = b*np.log(z/a) + c*np.log(z/a)**2 + d*z/a
+        k = 10**log_k * np.sign(s68_signed)
+        # fit to alpha/(Q_84 - Q_16)
+        a = 0.5029
+        b = 1.986
+        c = 0.3789
+        d = 1.289
+        alpha_qq = a*(1 - s68**(b + c*s68))**2
+        alpha = alpha_qq * (q84 - q16)
+
+        mu = q50
+        q = random.random()
+        # inverse transfer sampling
+        log_n = mu + (alpha/k)*(np.exp(k*np.sqrt(2)*special.erfinv(2*q - 1)) - 1)
+        return 10**log_n
+    
     def var_names(self):
         return []
     
@@ -575,6 +738,9 @@ class Nadler2020RHalf(RHalfModel):
                 0, 1, size=np.shape(rvir))
             return 10**(log_R + log_scatter)
 
+    def r_half_is_2d(self):
+        return True
+        
     def var_names(self):
         """ var_names returns the names of the variables this model requires.
         """
@@ -584,16 +750,19 @@ class Nadler2020RHalf(RHalfModel):
 class FixedRHalf(RHalfModel):
     def __init__(self, ratio=0.015, scatter=0.0):
         self.ratio = ratio
-        self.scatter = scatter
+        self.sigma_log_R = scatter
 
     def r_half(self, rvir=None):
-        if self.scatter <= 0.0:
+        if self.sigma_log_R <= 0.0:
             return rvir*self.ratio
         else:
             log_scatter = self.sigma_log_R*random.normal(
                 0, 1, size=np.shape(rvir))
             return rvir*self.ratio * 10**(log_scatter)
 
+    def r_half_is_2d(self):
+        return False
+        
     def var_names(self):
         return ["rvir"]
 
@@ -634,6 +803,9 @@ class Jiang2019RHalf(RHalfModel):
         else:
             return R
 
+    def r_half_is_2d(self):
+        return False
+        
     def var_names(self):
         """ var_names returns the names of the variables this model requires.
         """
@@ -666,6 +838,9 @@ class Carlsten2021RHalf(RHalfModel):
         else:
             return R
 
+    def r_half_is_2d(self):
+        return True
+        
     def var_names(self):
         """ var_names returns the names of the variables this model requires.
         """
@@ -808,7 +983,7 @@ class FlatFeHProfile(FeHProfileModel):
         return []
 
 class Taibi2022FeHProfile(FeHProfileModel):
-    """ Requires that you're using RadialEnergyRanking
+    """ Requires that you're using EnergyRanking
     """
     def __init__(self, r_r50_max=6):
         FeHProfileModel.__init__(self)
@@ -1137,11 +1312,14 @@ class UniverseMachineMStar(MStarModel):
 #################################
 
 def tag_stars(sim_dir, galaxy_halo_model, star_snap=None, E_snap=None,
-              target_subs=None):
+              target_subs=None, seed=None, energy_method="E_sph"):
+    # energy_method can be E_sph, E, or smooth
+    if seed is not None:
+        random.seed(seed)
+        
     # Basic simulation information
     param = lib.simulation_parameters(sim_dir)
     h, hist = lib.read_subhalos(sim_dir)
-    h_cmov, _ = lib.read_subhalos(sim_dir, comoving=True)
     scale = lib.scale_factors(sim_dir)
 
     # Not everyone is going to run UM on their zoom-ins, so don't force this
@@ -1178,83 +1356,88 @@ def tag_stars(sim_dir, galaxy_halo_model, star_snap=None, E_snap=None,
                 E_snap[i] = look_back_orbital_time(
                     param, scale, star_snap[i], 0.125, h[i,:], 0.5)
                 
-    # Set up buffers and shared information for I/O.
 
-    # Total number of particles in each snapshot
-    n_max = np.zeros(len(h), dtype=int)
-    # The indices of the particles stored at the two stages. They get trimmed
-    # down to only the valid and self-owned particles.
-    idx_star, idx_E = [None]*len(h), [None]*len(h)
-    # Position and velocity information for the different particles.
-    x_star, x_E, v_E = [None]*len(h), [None]*len(h), [None]*len(h)
-    # Shared information across snapshots.
-    part_info = lib.ParticleInfo(sim_dir)
 
+    n_smooth = np.zeros(len(h), dtype=int)
+    # particles in "all" mode at the energy and tagging snapshots
+    p_E, p_star = [None]*len(h), [None]*len(h)
+
+    if energy_method in ["E", "E_sph"]:
+        part = lib.Particles(sim_dir, include=[energy_method])
+    elif energy_method == "smooth":
+        part = lib.Particles(sim_dir)
+    else:
+        raise ValueError("Unrecognized E_method, '%s'" % E_method)    
+    
     for snap in range(h.shape[1]):
         # If nobody needs this snapshot, don't read it in.
         if (snap not in E_snap[target_subs] and
             snap not in star_snap[target_subs]): continue
-
-        # Work out which objects we actually need to read in this snapshot.
+        
         star_ok = np.zeros(len(h), dtype=bool)
         E_ok = np.zeros(len(h), dtype=bool)
         star_ok[target_subs], E_ok[target_subs] = True, True
-        star_ok = star_ok & (star_snap == snap)
-        E_ok = E_ok & (E_snap == snap)
-        i_star, i_E = np.where(star_ok)[0], np.where(E_ok)[0]
-
+        i_star = np.where(star_ok & (star_snap == snap))[0]
+        i_E = np.where(E_ok & (E_snap == snap))[0]
+        
         # Read in data.
-        host, a_z = h_cmov[0,snap], scale[snap]
 
         # Add information at the snapshot stellar masses are assigned
         for i in i_star:
-            ok = lib.read_particles(
-                part_info, sim_dir, snap, "valid", owner=i)
-            x = lib.read_particles(
-                part_info, sim_dir, snap, "x", owner=i)
-            v = lib.read_particles(
-                part_info, sim_dir, snap, "v", owner=i)
+            p = part.read(snap, mode="smooth", halo=i)
+            n_smooth[i] = np.sum(p["smooth"])
             
-            idx_star[i] = np.where(ok)[0]
             sx = h[i,snap]["x"]
-            x_star[i] = util.set_units_x(x[ok], host, a_z, param) - sx
+            sv = h[i,snap]["v"]
+            p["x"] -= sx
+            p["v"] -= sv
+            p_star[i] = p
 
-            n_max[i] = len(x)
-            
-        # Add information at the snapshot energies are measured
+        # Add information at the snapshot energies are evaluated
         for i in i_E:
-            ok = lib.read_particles(
-                part_info, sim_dir, snap, "valid", owner=i)
-            x = lib.read_particles(
-                part_info, sim_dir, snap, "x", owner=i)
-            v = lib.read_particles(
-                part_info, sim_dir, snap, "v", owner=i)
-
-            idx_E[i] = np.where(ok)[0]
-            sx, sv = h[i,snap]["x"], h[i,snap]["v"]
+            p = part.read(snap, mode="smooth", halo=i)
             
-            x_E[i] = util.set_units_x(x[ok], host, a_z, param) - sx
-            v_E[i] = util.set_units_v(v[ok], host, a_z, param) - sv
+            sx = h[i,snap]["x"]
+            sv = h[i,snap]["v"]
+            p["x"] -= sx
+            p["v"] -= sv
+            p_E[i] = p
             
-    # Finally, assign stellar masses and create ranking objects for each halo.
+    # Initialize various arrays.
     mp_star, ranks = [None]*len(h), [None]*len(h)
-
     r_half, m_star = np.ones(len(h))*-1, np.ones(len(h))*-1
     Fe_H = [None]*len(h)
-
     gal_hists = np.zeros(len(h), dtype=lib.GALAXY_HISTORY_DTYPE)
+    
     stars = [None]*len(h)
     for i in target_subs:
-        stars[i] = np.zeros(n_max[i], dtype=lib.STAR_DTYPE)
-
+        stars[i] = np.zeros(n_smooth[i], dtype=lib.STAR_DTYPE)
+    
+    # Finally, assign stellar masses and create ranking objects for each halo.
     for i in target_subs:
-        ranks[i] = RadialEnergyRanking(
-            param, x_E[i], v_E[i], idx_E[i], n_max[i],
-            h["rvir"][i, star_snap[i]])
-        if len(x_E[i]) == 0: continue
-        
-        ranks[i].load_particles(x_star[i], None, idx_star[i])
+        if energy_method == "smooth":
+            ok = p_E[i]["ok"]
+            _, vmax, pe_vmax2 , _ = profile_info(param, p_E[i]["x"], ok=ok)
+            pe = pe_vmax2 * vmax**2
+            ke = np.sum(p_E[i]["v"]**2, axis=1)/2
+            E = pe + ke
+        elif energy_method in ["E", "E_sph"]:
+            E = p_E[i][energy_method]
+            vmax = h["vmax"][i,E_snap[i]]
+        else:
+            assert(0) # Already tested for.
 
+        rvir = h["rvir"][i,E_snap[i]]
+        E[~p_E[i]["ok"]] = np.inf
+        ranks[i] = EnergyRanking(p_E[i], E, rvir, vmax)
+        
+        if len(p_E[i]) == 0: continue
+
+        idx = np.where(p_E[i]["ok"])[0]
+        if len(idx) == 0 or len(idx) <= DEFAULT_CORE_PARTICLES: continue
+        
+        ranks[i].load_particles(p_star[i]["x"][idx], p_star[i]["v"][idx], idx)
+        
         # It's some tiny subhalo that Rockstar made a mistake on. Doesn't have
         # any bins with more than 10 particles in them.
         if np.max(ranks[i].ranks) == -1:
@@ -1285,7 +1468,9 @@ class RetagStarsState(object):
 
 def retag_stars(sim_dir, galaxy_halo_model, ranks,
                 state=None, star_snap=None,
-                target_subs=None):
+                target_subs=None, seed=None):
+    if seed is not None:
+        random.seed(seed)
     # Basic simulation information
 
     if state is None:
@@ -1405,7 +1590,11 @@ class GalaxyHaloModel(object):
             check_var_names(kwargs, self.r_half_model)
             r_half = self.r_half_model.r_half(
                 **self.r_half_model.trim_kwargs(kwargs))
-  
+
+        self.profile_shape_model.set_r_half_is_2d(
+            self.r_half_model.r_half_is_2d()
+        )
+            
         mp_star = ranks.set_mp_star(kwargs, self.profile_shape_model,
                                     r_half, m_star)
         gal_hist = np.zeros(1, dtype=lib.GALAXY_HISTORY_DTYPE)[0]
@@ -1437,7 +1626,14 @@ class GalaxyHaloModel(object):
         stars["a_form"] = a_form
 
         gal_hist["m_star_i"] = m_star
-        gal_hist["r_half_2d_i"] = r_half
+
+        r2d_r3d = self.profile_shape_model.r2d_r3d()
+        if self.r_half_model.r_half_is_2d():
+            gal_hist["r_half_2d_i"] = r_half
+            gal_hist["r_half_3d_i"] = r_half/r2d_r3d
+        else:
+            gal_hist["r_half_2d_i"] = r_half*r2d_r3d
+            gal_hist["r_half_3d_i"] = r_half
         
         return stars, gal_hist
     
@@ -1655,7 +1851,7 @@ def profile_info(params, x, ok=None, order=None):
     return rmax, vmax, -out, order
 
 def rank_by_quantile(quantiles, x, idx, n_max):
-    """ rank_by_quantile breaks the paritcles represented by x (any value) and
+    """ rank_by_quantile breaks the particles represented by x (any value) and
     idx (index within the full set of particles, of length n_max). quantiles
     gives the upper and lower quantile edges for each rank.
     """
@@ -1711,7 +1907,7 @@ DWARF_GALAXY_HALO_MODEL = GalaxyHaloModel(
     ),
     ProfileModel(
         Jiang2019RHalf(),
-        PlummerProfile()
+        DeprojectedSersicProfile()
     ),
     MetalModel(
         Kirby2013Metallicity(),
@@ -1730,7 +1926,7 @@ DWARF_GALAXY_HALO_MODEL_NO_UM = GalaxyHaloModel(
     ),
     ProfileModel(
         Jiang2019RHalf(),
-        PlummerProfile()
+        DeprojectedSersicProfile()
     ),
     MetalModel(
         Kirby2013Metallicity(),
