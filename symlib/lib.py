@@ -328,6 +328,8 @@ parameter_table = {
     "ConcertoMW416LR": _hinshaw_ns_cosmology.copy(),
     "ConcertoGroupLR": _hinshaw_cosmology.copy(),
     "ConcertoLClusterLR":_LCluster_cosmology.copy(),
+    #added for MW004 32K
+    "ConcertoMW004VHR":_hinshaw_cosmology.copy(),
     }
 
 parameter_table["SymphonyLMC"]["eps"] = 0.080
@@ -357,6 +359,8 @@ parameter_table["ConcertoMW416LR"]["eps"] = 0.170
 parameter_table["ConcertoGroupLR"]["eps"] = 0.360
 parameter_table["ConcertoLClusterLR"]["eps"] = 1.200
 
+#added for MW004 32K
+parameter_table["ConcertoMW004VHR"]["eps"] = 0.040
 
 parameter_table["SymphonyLMC"]["mp"] = 3.52476e4
 parameter_table["SymphonyMilkyWay"]["mp"] = 2.81981e5
@@ -384,6 +388,9 @@ parameter_table["ConcertoMW004LR"]["mp"] = 2.81981e5
 parameter_table["ConcertoMW416LR"]["mp"] = 2.81981e5
 parameter_table["ConcertoGroupLR"]["mp"] = 2.25585e6
 parameter_table["ConcertoLClusterLR"]["mp"] = 1.51441632e8
+#added for MW004 32K
+parameter_table["ConcertoMW004VHR"]["mp"] = 4.406e3
+
 
 for sim in parameter_table:
     param = parameter_table[sim]
@@ -460,7 +467,7 @@ def scale_factors(dir_name):
    
 
     #added for ConcertoHR
-    elif (suite_name in ["ConcertoLMCHR", "ConcertoMW004HR", "ConcertoMW416HR", "ConcertoGroupHR"] or dir_name in ["ConcertoLMCHR", "ConcertoMW004HR", "ConcertoMW416HR", "ConcertoGroupHR"]):
+    elif (suite_name in ["ConcertoLMCHR", "ConcertoMW004HR", "ConcertoMW416HR", "ConcertoGroupHR", "ConcertoMW004VHR"] or dir_name in ["ConcertoLMCHR", "ConcertoMW004HR", "ConcertoMW416HR", "ConcertoGroupHR", "ConcertoMW004VHR"]):
         default = 10**np.linspace(np.log10(0.05), np.log10(1), 236)
     
     elif (suite_name in ["ConcertoLClusterHR",] or
